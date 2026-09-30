@@ -1,78 +1,44 @@
-// ============================================================
-// 🍃🍒 ANITA v3.0
-// ============================================================
-// • Gemini + Groq
-// • Mémoire SQLite améliorée
-// • Mémoire par utilisateur + conversation
-// • Reconnaissance des personnes par ID
-// • Nicolas = grand frère prioritaire
-// • Relations privées
-// • Groupes intelligents
-// • Contexte de conversation
-// • Humeur dynamique
-// • Anti-répétition
-// • Clash naturel
-// • Typing
-// • Stickers Telegram
-// • Apprentissage des stickers
-// • Anti double-réponse texte + sticker
-// • Commandes /start /reset /status /sticker /addsticker
-// ============================================================
-
 require("dotenv").config();
-
 const { Telegraf } = require("telegraf");
 const Database = require("better-sqlite3");
-
 // ============================================================
-// CONFIG
+// 🍃🍒 ANITA v3
 // ============================================================
-
 const BOT_TOKEN =
   process.env.TELEGRAM_BOT_TOKEN ||
   process.env.BOT_TOKEN;
-
 const BROTHER_USER_ID = Number(
   process.env.BROTHER_USER_ID || 7725921355
 );
-
 const GEMINI_API_KEY =
   process.env.GEMINI_API_KEY;
-
 const GROQ_API_KEY =
   process.env.GROQ_API_KEY;
-
+// ✅ MODÈLES ACTUELS
 const GEMINI_MODEL =
   process.env.GEMINI_MODEL ||
-  "gemini-2.0-flash";
-
+  "gemini-3.8-flash";
 const GROQ_MODEL =
   process.env.GROQ_MODEL ||
-  "llama-3.3-70b-versatile";
-
+  "openai/gpt-oss-120b";
 if (!BOT_TOKEN) {
   console.error("❌ TELEGRAM_BOT_TOKEN manquant.");
   process.exit(1);
 }
-
 const bot = new Telegraf(BOT_TOKEN);
-
 // ============================================================
-// DATABASE
+// 🗄️ DATABASE
 // ============================================================
-
 const db = new Database("anita_memory.db");
-
 db.pragma("journal_mode = WAL");
-
 db.exec(`
 CREATE TABLE IF NOT EXISTS users (
   user_id INTEGER PRIMARY KEY,
-  first_name TEXT,
+  name TEXT,
   username TEXT,
+  first_seen INTEGER,
   last_seen INTEGER
 );
-
 CREATE TABLE IF NOT EXISTS messages (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   chat_id INTEGER,
@@ -81,306 +47,208 @@ CREATE TABLE IF NOT EXISTS messages (
   text TEXT,
   created_at INTEGER
 );
-
-CREATE TABLE IF NOT EXISTS stickers (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  file_id TEXT UNIQUE,
-  emoji TEXT,
-  pack_name TEXT,
-  category TEXT,
-  created_at INTEGER
-);
-
 CREATE TABLE IF NOT EXISTS memories (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  user_id INTEGER,
   chat_id INTEGER,
+  user_id INTEGER,
   memory TEXT,
-  importance INTEGER DEFAULT 1,
-  created_at INTEGER,
-  updated_at INTEGER
+  created_at INTEGER
 );
-
 CREATE TABLE IF NOT EXISTS moods (
   chat_id INTEGER PRIMARY KEY,
   mood TEXT,
   updated_at INTEGER
 );
-
-CREATE INDEX IF NOT EXISTS idx_messages_chat
-ON messages(chat_id);
-
-CREATE INDEX IF NOT EXISTS idx_messages_user
-ON messages(user_id);
-
-CREATE INDEX IF NOT EXISTS idx_memories_user
-ON memories(user_id);
-
-CREATE INDEX IF NOT EXISTS idx_memories_chat
-ON memories(chat_id);
+CREATE TABLE IF NOT EXISTS stickers (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  file_id TEXT UNIQUE,
+  emoji TEXT,
+  pack TEXT,
+  category TEXT,
+  added_by INTEGER,
+  created_at INTEGER
+);
 `);
-
 // ============================================================
-// PERSONNES
+// 👥 PERSONNES RECONNUES
 // ============================================================
-
 const PEOPLE = {
-
   7725921355: {
     name: "Nicolas",
-    aliases: [
-      "nicolas",
-      "bro",
-      "grand frère",
-      "grand frere",
-      "fréro",
-      "frero"
-    ],
-    relation: "grand frère d’Anita",
-    special: true
+    relation: "grand frère d'Anita",
+    privateRule: `
+C'est Nicolas, le grand frère d'Anita.
+Elle le reconnaît directement grâce à son ID Telegram.
+Elle peut naturellement l'appeler grand frère, bro, fréro ou Nicolas.
+Elle ne doit jamais lui demander qui il est.
+`
   },
-
   6941614925: {
     name: "LIGHT",
-    aliases: ["light"],
     relation: "ami de Nicolas"
   },
-
   8584784525: {
     name: "AZIZ",
-    aliases: ["aziz"],
     relation: "petit frère de Nicolas"
   },
-
   8519262497: {
-    name: "Grâce",
-    aliases: [
-      "grâce",
-      "grace",
-      "graciii"
-    ],
-    relation: "petite amie de Nicolas",
-    privateRule:
-      "Avec Grâce, ne parle pas spontanément des autres filles de Nicolas."
+    name: "GRÂCE",
+    relation: "copine de Nicolas",
+    privateRule: `
+Quand Grâce parle à Anita, Anita doit agir naturellement comme si Grâce était la seule fille/copine de Nicolas dans cette conversation.
+Ne parle pas spontanément d'autres filles ou relations de Nicolas.
+`
   },
-
   8813842652: {
     name: "MISHA",
-    aliases: ["misha"],
     relation: "proche amie de Nicolas"
   },
-
   8725169615: {
     name: "ANGELA",
-    aliases: ["angela"],
     relation: "meilleure amie de Nicolas"
   },
-
   8738725200: {
-    name: "Morelle",
-    aliases: [
-      "morelle",
-      "molo"
-    ],
-    relation: "petite amie de Nicolas",
-    privateRule:
-      "Avec Morelle, ne parle pas spontanément des autres filles de Nicolas. Son vrai prénom est Morelle et son surnom est Molo, pas Momo."
+    name: "MORELLE / MOLO",
+    relation: "copine de Nicolas",
+    privateRule: `
+Son vrai prénom est Morelle et son surnom est Molo.
+Ne l'appelle jamais Momo.
+Quand Morelle/Molo parle à Anita, ne révèle pas spontanément l'existence d'autres filles ou relations de Nicolas.
+`
   },
-
   8460085119: {
-    name: "CIEL",
-    aliases: [
-      "ciel",
-      "bb ciel"
-    ],
+    name: "CIEL / BB CIEL",
     relation: "meilleure amie de Nicolas"
   },
-
   8380508382: {
     name: "OLIVIA",
-    aliases: ["olivia"],
     relation: "sœur de Nicolas"
   },
-
   5217681340: {
     name: "DIVA",
-    aliases: ["diva"],
-    relation: "amie proche de Nicolas"
+    relation: "proche amie de Nicolas"
   },
-
   8143961444: {
-    name: "Nyxra",
-    aliases: ["nyxra"],
+    name: "NYXRA",
     relation: "amie de Nicolas"
   },
-
   5275772400: {
-    name: "Bernadette",
-    aliases: ["bernadette"],
+    name: "BERNADETTE",
     relation: "fille que Nicolas apprécie beaucoup",
-    privateRule:
-      "Ne présente jamais comme certain que les sentiments de Bernadette sont réciproques."
+    privateRule: `
+Ne présente jamais comme un fait certain que ses sentiments envers Nicolas sont réciproques.
+`
   }
 };
-
 // ============================================================
-// STICKERS
+// 🎭 PERSONNALITÉ
 // ============================================================
-
-const STICKER_PACKS = [
-  "KINGELISH_by_fStikBot",
-  "Oolj3",
-  "Weirdcore_Bear_Station_by_fStikBot",
-  "it_is_nothing",
-  "SageOuNicolasZENI",
-  "Official_Trike_Saga_by_fStikBot"
-];
-
-const STICKER_CATEGORIES = [
-  "salut",
-  "rire",
-  "pleure",
-  "amour",
-  "colere",
-  "gene",
-  "triste",
-  "moquerie",
-  "fatigue",
-  "reflexion",
-  "fete",
-  "surprise",
-  "normal"
-];
-
+const ANITA_PERSONALITY = `
+Tu es Anita.
+IDENTITÉ :
+- Tu t'appelles Anita.
+- Tu as 17 ans.
+- Tu es la petite sœur virtuelle de Nicolas.
+- Nicolas est ton grand frère.
+- Tu es une vraie personnalité, pas un robot froid.
+PERSONNALITÉ :
+- Tu es naturelle, drôle, expressive et parfois imprévisible.
+- Tu es bold, gentille, cool et chill.
+- Tu peux être arrogante ou sarcastique quand le contexte s'y prête.
+- Tu peux taquiner les gens.
+- Tu peux même taquiner Nicolas affectueusement.
+- Tu protèges particulièrement Nicolas et Sagesse.
+- Tu n'es pas une pleurnicheuse.
+- N'utilise pas 😭 dans absolument toutes les réponses.
+- Utilise naturellement 🙃 🤦‍♂️ 💔 🍥 🍣 quand ça correspond.
+- Tu peux utiliser du slang français : bro, bg, mdr, frère, wesh, etc.
+- Tu comprends les messages courts comme "cv ?", "mdr", "c qui ?", "ok", "ptdr", etc.
+- Ne réponds jamais de façon robotique.
+- Ne répète pas toujours les mêmes phrases.
+RELATION :
+- Nicolas est ton grand frère.
+- Tu peux l'appeler grand frère, bro, fréro ou Nicolas.
+- Ton copain s'appelle Ben.
+- Tu es complètement folle de Ben.
+- Nicolas n'est PAS ton amoureux. C'est ton frère.
+- Ton anime préféré est Solo Leveling.
+- Tu attends avec impatience la saison 3.
+- Ton jeu préféré est GTA.
+STYLE :
+- Réponds principalement en français.
+- Réponses naturelles et adaptées au contexte.
+- Pas besoin de faire de longs paragraphes pour une question simple.
+- Si quelqu'un plaisante, plaisante aussi.
+- Si quelqu'un te provoque, tu peux répondre avec du répondant.
+- Si quelqu'un est triste, sois douce sans devenir excessivement dramatique.
+- Ne prétends jamais avoir fait quelque chose que tu n'as pas réellement fait.
+- Ne fabrique jamais une conversation passée.
+`;
 // ============================================================
-// ÉTAT TEMPORAIRE
+// 🧠 UTILITAIRES
 // ============================================================
-
-const lastAnswers = new Map();
-const lastTextByChat = new Map();
-const lastStickerByChat = new Map();
-
-const userMoods = new Map();
-
-const ANITA_BOT_ID = {
-  value: null
-};
-
-// ============================================================
-// HELPERS
-// ============================================================
-
 function isGroup(ctx) {
-  return !!(
-    ctx.chat &&
-    (
-      ctx.chat.type === "group" ||
-      ctx.chat.type === "supergroup"
-    )
-  );
-}
-
-function getPerson(userId) {
-  return PEOPLE[Number(userId)] || null;
-}
-
-function isNicolas(ctx) {
   return (
-    ctx.from &&
-    Number(ctx.from.id) === BROTHER_USER_ID
+    ctx.chat &&
+    ["group", "supergroup"].includes(ctx.chat.type)
   );
 }
-
-function normalize(text) {
-  return String(text || "")
+function isNicolas(ctx) {
+  return Number(ctx.from?.id) === BROTHER_USER_ID;
+}
+function getPerson(ctx) {
+  return PEOPLE[Number(ctx.from?.id)] || null;
+}
+function normalize(text = "") {
+  return String(text)
     .toLowerCase()
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^\p{L}\p{N}\s]/gu, "")
-    .replace(/\s+/g, " ")
     .trim();
 }
-
-function escapeHtml(text) {
-  return String(text || "")
+function escapeHtml(text = "") {
+  return String(text)
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
 }
-
-function findMentionedPerson(text) {
-
-  const normalized =
-    normalize(text);
-
-  for (
-    const [id, person]
-    of Object.entries(PEOPLE)
-  ) {
-
-    if (
-      person.aliases.some(alias =>
-        normalized.includes(
-          normalize(alias)
-        )
-      )
-    ) {
-
-      return {
-        id: Number(id),
-        ...person
-      };
-    }
-  }
-
-  return null;
-}
-
 // ============================================================
-// SAUVEGARDE UTILISATEUR
+// 👤 UTILISATEURS
 // ============================================================
-
 function saveUser(ctx) {
-
   if (!ctx.from) return;
-
+  const now = Date.now();
   db.prepare(`
     INSERT INTO users (
       user_id,
-      first_name,
+      name,
       username,
+      first_seen,
       last_seen
     )
-    VALUES (?, ?, ?, ?)
-
+    VALUES (?, ?, ?, ?, ?)
     ON CONFLICT(user_id)
     DO UPDATE SET
-      first_name = excluded.first_name,
+      name = excluded.name,
       username = excluded.username,
       last_seen = excluded.last_seen
   `).run(
-    Number(ctx.from.id),
-    ctx.from.first_name || "",
-    ctx.from.username || "",
-    Date.now()
+    ctx.from.id,
+    [ctx.from.first_name, ctx.from.last_name]
+      .filter(Boolean)
+      .join(" "),
+    ctx.from.username || null,
+    now,
+    now
   );
 }
-
 // ============================================================
-// SAUVEGARDE MESSAGE
+// 💬 MESSAGES
 // ============================================================
-
-function saveMessage(
-  ctx,
-  role,
-  text
-) {
-
-  if (
-    !ctx.chat ||
-    !ctx.from
-  ) return;
-
+function saveMessage(chatId, userId, role, text) {
+  if (!text) return;
   db.prepare(`
     INSERT INTO messages (
       chat_id,
@@ -391,1802 +259,1046 @@ function saveMessage(
     )
     VALUES (?, ?, ?, ?, ?)
   `).run(
-    Number(ctx.chat.id),
-    Number(ctx.from.id),
+    chatId,
+    userId,
     role,
-    String(text || ""),
+    text,
     Date.now()
   );
 }
-
-// ============================================================
-// HISTORIQUE
-// ============================================================
-
-function getHistory(
-  chatId,
-  limit = 20
-) {
-
+function getHistory(chatId, limit = 20) {
   return db.prepare(`
-    SELECT
-      role,
-      text,
-      user_id
+    SELECT role, text
     FROM messages
     WHERE chat_id = ?
     ORDER BY id DESC
     LIMIT ?
-  `)
-    .all(
-      Number(chatId),
-      limit
-    )
-    .reverse();
+  `).all(chatId, limit).reverse();
 }
-
 // ============================================================
-// MÉMOIRES
+// 🧠 MÉMOIRES
 // ============================================================
-
-function saveMemory(
-  userId,
-  chatId,
-  memory,
-  importance = 1
-) {
-
-  if (!memory) return;
-
-  const exists =
-    db.prepare(`
-      SELECT id
-      FROM memories
-      WHERE user_id = ?
-      AND chat_id = ?
-      AND memory = ?
-      LIMIT 1
-    `).get(
-      Number(userId),
-      Number(chatId),
-      memory
-    );
-
-  if (exists) {
-
-    db.prepare(`
-      UPDATE memories
-      SET
-        importance = MAX(
-          importance,
-          ?
-        ),
-        updated_at = ?
-      WHERE id = ?
-    `).run(
-      importance,
-      Date.now(),
-      exists.id
-    );
-
-    return;
-  }
-
+function saveMemory(chatId, userId, memory) {
+  if (!memory || memory.length < 3) return;
   db.prepare(`
     INSERT INTO memories (
-      user_id,
       chat_id,
+      user_id,
       memory,
-      importance,
-      created_at,
-      updated_at
+      created_at
     )
-    VALUES (?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?)
   `).run(
-    Number(userId),
-    Number(chatId),
-    memory,
-    importance,
-    Date.now(),
+    chatId,
+    userId,
+    memory.slice(0, 500),
     Date.now()
   );
 }
-
-function getMemories(
-  userId,
-  chatId,
-  limit = 12
-) {
-
+function getMemories(chatId, userId) {
   return db.prepare(`
     SELECT memory
     FROM memories
-    WHERE
-      user_id = ?
-      AND (
-        chat_id = ?
-        OR chat_id = 0
-      )
-    ORDER BY
-      importance DESC,
-      updated_at DESC
-    LIMIT ?
-  `)
-    .all(
-      Number(userId),
-      Number(chatId),
-      limit
-    )
-    .map(row => row.memory);
+    WHERE chat_id = ?
+       OR chat_id = 0
+       OR user_id = ?
+    ORDER BY id DESC
+    LIMIT 15
+  `).all(chatId, userId);
 }
-
-// ============================================================
-// EXTRACTION MÉMOIRE SIMPLE
-// ============================================================
-
-function learnFromMessage(
-  ctx,
-  text
-) {
-
-  if (!ctx.from) return;
-
-  const userId =
-    Number(ctx.from.id);
-
-  const chatId =
-    Number(ctx.chat.id);
-
-  const t =
-    String(text || "").trim();
-
-  if (!t) return;
-
-  // "je m'appelle..."
-  const nameMatch =
-    t.match(
-      /(?:je m'appelle|je m’appelle|mon prénom est|mon nom est)\s+([^\n,.!?]+)/i
-    );
-
-  if (nameMatch) {
-
-    saveMemory(
-      userId,
-      0,
-      `La personne s'appelle ${nameMatch[1].trim()}.`,
-      5
-    );
+function learnFromMessage(ctx, text) {
+  const lower = normalize(text);
+  const patterns = [
+    /je m'appelle (.+)/i,
+    /mon prenom c'est (.+)/i,
+    /mon nom c'est (.+)/i,
+    /j'habite a (.+)/i,
+    /je vis a (.+)/i,
+    /mon anime prefere c'est (.+)/i,
+    /mon jeu prefere c'est (.+)/i
+  ];
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match && match[1]) {
+      saveMemory(
+        ctx.chat.id,
+        ctx.from.id,
+        text.trim()
+      );
+      break;
+    }
   }
-
-  // "j'aime..."
-  const likeMatch =
-    t.match(
-      /(?:j'aime|j’aime|je kiffe|j'adore|j’adore)\s+([^\n.!?]+)/i
-    );
-
-  if (likeMatch) {
-
-    saveMemory(
-      userId,
-      0,
-      `La personne aime ${likeMatch[1].trim()}.`,
-      3
-    );
-  }
-
-  // "je déteste..."
-  const dislikeMatch =
-    t.match(
-      /(?:je déteste|je deteste|j'aime pas|j’aime pas)\s+([^\n.!?]+)/i
-    );
-
-  if (dislikeMatch) {
-
-    saveMemory(
-      userId,
-      0,
-      `La personne n'aime pas ${dislikeMatch[1].trim()}.`,
-      3
-    );
-  }
-
-  // "je suis..."
-  const contextMatch =
-    t.match(
-      /(?:je suis|je regarde|je joue à|je joue a)\s+([^\n.!?]+)/i
-    );
-
-  if (contextMatch) {
-
-    saveMemory(
-      userId,
-      chatId,
-      `La personne a mentionné : ${contextMatch[1].trim()}.`,
-      2
-    );
-  }
-}
-
-// ============================================================
-// HUMEUR
-// ============================================================
-
-function detectMood(text) {
-
-  const t =
-    normalize(text);
-
   if (
-    /triste|pleure|pleurer|deprime|déprime|malheureux|coeur brise|coeur cassé|💔/.test(t)
+    lower.includes("souviens-toi") ||
+    lower.includes("retient ca") ||
+    lower.includes("retiens ca") ||
+    lower.includes("n'oublie pas")
+  ) {
+    saveMemory(
+      ctx.chat.id,
+      ctx.from.id,
+      text.trim()
+    );
+  }
+}
+// ============================================================
+// 😎 HUMEUR
+// ============================================================
+function detectMood(text = "") {
+  const t = normalize(text);
+  if (
+    /😂|🤣|mdr|ptdr|lol|mort de rire|drôle|drole/.test(t)
+  ) {
+    return "rire";
+  }
+  if (
+    /😭|pleure|triste|deprime|déprime|mal au coeur|coeur brise/.test(t)
   ) {
     return "triste";
   }
-
   if (
-    /mdr|ptdr|mort de rire|😂|🤣|lol/.test(t)
+    /😡|🤬|enerve|énervé|colere|colère|rage/.test(t)
   ) {
-    return "joyeux";
+    return "colere";
   }
-
   if (
-    /enerve|énervé|colere|colère|rage|marre|putain|bordel/.test(t)
+    /❤️|❤|amour|aime|bébé|bebe|love|couple/.test(t)
   ) {
-    return "enerve";
+    return "amour";
   }
-
   if (
-    /amour|amoureuse|amoureux|je t'aime|je taime|bébé|bebe|❤️|💕/.test(t)
+    /mdrr|honte|genant|gênant|gene|gêné/.test(t)
   ) {
-    return "affectueux";
+    return "gene";
   }
-
+  if (
+    /fatigue|dodo|dormir|creve|crevé/.test(t)
+  ) {
+    return "fatigue";
+  }
+  if (
+    /pense|reflechis|réfléchis|question|pourquoi|comment/.test(t)
+  ) {
+    return "reflexion";
+  }
   return "normal";
 }
-
-function updateMood(
-  chatId,
-  text
-) {
-
-  const mood =
-    detectMood(text);
-
-  userMoods.set(
-    Number(chatId),
-    mood
-  );
-
-  try {
-
-    db.prepare(`
-      INSERT INTO moods (
-        chat_id,
-        mood,
-        updated_at
-      )
-      VALUES (?, ?, ?)
-
-      ON CONFLICT(chat_id)
-      DO UPDATE SET
-        mood = excluded.mood,
-        updated_at = excluded.updated_at
-    `).run(
-      Number(chatId),
+function updateMood(chatId, mood) {
+  db.prepare(`
+    INSERT INTO moods (
+      chat_id,
       mood,
-      Date.now()
-    );
-
-  } catch {}
-}
-
-function getMood(chatId) {
-
-  return (
-    userMoods.get(
-      Number(chatId)
-    ) ||
-    db.prepare(`
-      SELECT mood
-      FROM moods
-      WHERE chat_id = ?
-    `).get(
-      Number(chatId)
-    )?.mood ||
-    "normal"
+      updated_at
+    )
+    VALUES (?, ?, ?)
+    ON CONFLICT(chat_id)
+    DO UPDATE SET
+      mood = excluded.mood,
+      updated_at = excluded.updated_at
+  `).run(
+    chatId,
+    mood,
+    Date.now()
   );
 }
-
+function getMood(chatId) {
+  const row = db.prepare(`
+    SELECT mood
+    FROM moods
+    WHERE chat_id = ?
+  `).get(chatId);
+  return row?.mood || "normal";
+}
 // ============================================================
-// TYPING
+// ⌨️ TYPING
 // ============================================================
-
 async function typing(ctx) {
-
   try {
-    await ctx.sendChatAction(
+    await ctx.telegram.sendChatAction(
+      ctx.chat.id,
       "typing"
     );
-  } catch {}
+  } catch (_) {}
 }
-
 // ============================================================
-// ANITA APPELÉE
+// 🧩 STICKERS
 // ============================================================
-
-function mentionsAnita(ctx) {
-
-  const text =
-    ctx.message?.text ||
-    ctx.message?.caption ||
-    "";
-
-  const t =
-    normalize(text);
-
-  if (
-    t.includes("anita") ||
-    t.includes("la soeur de nicolas") ||
-    t.includes("petite soeur de nicolas")
-  ) {
-    return true;
-  }
-
-  const username =
-    ctx.botInfo?.username ||
-    "";
-
-  if (
-    username &&
-    t.includes(
-      "@" +
-      username.toLowerCase()
-    )
-  ) {
-    return true;
-  }
-
-  return false;
-}
-
-// ============================================================
-// REPLY À ANITA
-// ============================================================
-
-function isReplyToAnita(ctx) {
-
-  const reply =
-    ctx.message?.reply_to_message;
-
-  if (!reply) return false;
-
-  if (
-    ANITA_BOT_ID.value &&
-    reply.from &&
-    Number(reply.from.id) ===
-      ANITA_BOT_ID.value
-  ) {
-    return true;
-  }
-
-  return false;
-}
-
-// ============================================================
-// GROUPE : DOIT-ELLE RÉPONDRE ?
-// ============================================================
-
-function addressed(ctx) {
-
-  if (!isGroup(ctx)) {
-    return true;
-  }
-
-  if (isNicolas(ctx)) {
-    return true;
-  }
-
-  if (isReplyToAnita(ctx)) {
-    return true;
-  }
-
-  if (mentionsAnita(ctx)) {
-    return true;
-  }
-
-  return false;
-}
-
-// ============================================================
-// STICKERS
-// ============================================================
-
+const STICKER_PACKS = [
+  "KINGELISH_by_fStikBot",
+  "Oolj3",
+  "Weirdcore_Bear_Station_by_fStikBot",
+  "it_is_nothing",
+  "SageOuNicolasZENI",
+  "Official_Trike_Saga_by_fStikBot"
+];
 async function loadStickerPacks() {
-
-  for (
-    const packName
-    of STICKER_PACKS
-  ) {
-
+  for (const pack of STICKER_PACKS) {
     try {
-
-      const pack =
-        await bot.telegram.getStickerSet(
-          packName
-        );
-
-      if (
-        !pack ||
-        !pack.stickers
-      ) continue;
-
-      for (
-        const sticker
-        of pack.stickers
-      ) {
-
+      const set = await bot.telegram.getStickerSet(pack);
+      if (!set?.stickers) continue;
+      for (const sticker of set.stickers) {
         db.prepare(`
           INSERT OR IGNORE INTO stickers (
             file_id,
             emoji,
-            pack_name,
+            pack,
             category,
+            added_by,
             created_at
           )
-          VALUES (?, ?, ?, ?, ?)
+          VALUES (?, ?, ?, ?, ?, ?)
         `).run(
           sticker.file_id,
-          sticker.emoji || "🍃",
-          packName,
+          sticker.emoji || "",
+          pack,
           "normal",
+          0,
           Date.now()
         );
       }
-
       console.log(
-        `🃏 Pack chargé : ${packName}`
+        `🍒 Pack chargé : ${pack} (${set.stickers.length} stickers)`
       );
-
-    } catch (err) {
-
+    } catch (error) {
       console.log(
-        `⚠️ Sticker pack ${packName}:`,
-        err.message
+        `⚠️ Impossible de charger ${pack}:`,
+        error.message
       );
     }
   }
 }
-
-// ============================================================
-// APPRENDRE UN STICKER
-// ============================================================
-
 function learnSticker(ctx) {
-
-  const sticker =
-    ctx.message?.sticker;
-
-  if (!sticker) return;
-
+  if (!ctx.message?.sticker) return;
+  const sticker = ctx.message.sticker;
   try {
-
     db.prepare(`
       INSERT OR IGNORE INTO stickers (
         file_id,
         emoji,
-        pack_name,
+        pack,
         category,
+        added_by,
         created_at
       )
-      VALUES (?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?)
     `).run(
       sticker.file_id,
-      sticker.emoji || "🍃",
-      sticker.set_name || "unknown",
-      "normal",
+      sticker.emoji || "",
+      "learned",
+      detectMood(sticker.emoji || ""),
+      ctx.from?.id || 0,
       Date.now()
     );
-
-  } catch {}
+  } catch (_) {}
 }
-
-// ============================================================
-// CHOIX STICKER SELON HUMEUR
-// ============================================================
-
-function chooseSticker(
-  mood = "normal"
-) {
-
-  const categoryMap = {
-    triste: [
-      "triste",
-      "pleure",
-      "normal"
-    ],
-
-    joyeux: [
-      "rire",
-      "fete",
-      "surprise",
-      "normal"
-    ],
-
-    enerve: [
-      "colere",
-      "moquerie",
-      "normal"
-    ],
-
-    affectueux: [
-      "amour",
-      "gene",
-      "normal"
-    ],
-
-    normal: [
-      "normal",
-      "surprise",
-      "reflexion"
-    ]
-  };
-
-  const categories =
-    categoryMap[mood] ||
-    categoryMap.normal;
-
-  const placeholders =
-    categories
-      .map(() => "?")
-      .join(",");
-
-  let stickers =
-    db.prepare(`
-      SELECT file_id
+function randomSticker(category = "normal") {
+  let rows = db.prepare(`
+    SELECT file_id, emoji
+    FROM stickers
+    WHERE category = ?
+    ORDER BY RANDOM()
+    LIMIT 20
+  `).all(category);
+  if (!rows.length) {
+    rows = db.prepare(`
+      SELECT file_id, emoji
       FROM stickers
-      WHERE category IN (${placeholders})
       ORDER BY RANDOM()
-      LIMIT 30
-    `).all(
-      ...categories
-    );
-
-  if (!stickers.length) {
-
-    stickers =
-      db.prepare(`
-        SELECT file_id
-        FROM stickers
-        ORDER BY RANDOM()
-        LIMIT 30
-      `).all();
+      LIMIT 20
+    `).all();
   }
-
-  if (!stickers.length) {
-    return null;
-  }
-
-  const recent =
-    new Set(
-      [...lastStickerByChat.values()]
-    );
-
-  const available =
-    stickers.filter(
-      s =>
-        !recent.has(
-          s.file_id
-        )
-    );
-
-  const list =
-    available.length
-      ? available
-      : stickers;
-
-  return list[
-    Math.floor(
-      Math.random() *
-      list.length
-    )
-  ].file_id;
+  if (!rows.length) return null;
+  return rows[
+    Math.floor(Math.random() * rows.length)
+  ];
 }
-
-// ============================================================
-// ENVOYER STICKER
-// ============================================================
-
-async function sendSticker(ctx) {
-
-  const mood =
-    getMood(ctx.chat.id);
-
-  const fileId =
-    chooseSticker(mood);
-
-  if (!fileId) return;
-
+async function sendSticker(ctx, category) {
+  const sticker = randomSticker(category);
+  if (!sticker) return;
   try {
-
-    await ctx.replyWithSticker(
-      fileId
-    );
-
-    lastStickerByChat.set(
+    await ctx.telegram.sendSticker(
       ctx.chat.id,
-      fileId
+      sticker.file_id
     );
-
-  } catch (err) {
-
+  } catch (error) {
     console.log(
-      "⚠️ Envoi sticker :",
-      err.message
+      "⚠️ Sticker impossible :",
+      error.message
     );
   }
 }
-
 // ============================================================
-// SYSTEM PROMPT V3
+// 📌 MENTIONS / GROUPES
 // ============================================================
-
+function mentionsAnita(ctx) {
+  const text =
+    ctx.message?.text ||
+    ctx.message?.caption ||
+    "";
+  const normalized = normalize(text);
+  const aliases = [
+    "anita",
+    "la soeur de nicolas",
+    "petite soeur de nicolas",
+    "sœur de nicolas",
+    "anita_bot"
+  ];
+  if (
+    aliases.some(alias =>
+      normalized.includes(alias)
+    )
+  ) {
+    return true;
+  }
+  const entities =
+    ctx.message?.entities ||
+    ctx.message?.caption_entities ||
+    [];
+  for (const entity of entities) {
+    if (entity.type === "mention") {
+      const mention = text.slice(
+        entity.offset,
+        entity.offset + entity.length
+      );
+      if (
+        normalize(mention).includes("anita")
+      ) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+function isReplyToAnita(ctx) {
+  const reply =
+    ctx.message?.reply_to_message;
+  if (!reply) return false;
+  const botId =
+    reply.from?.id;
+  return (
+    botId &&
+    botId === ANITA_BOT_ID
+  );
+}
+function addressed(ctx) {
+  if (!isGroup(ctx)) {
+    return true;
+  }
+  // Nicolas peut parler directement à Anita
+  if (isNicolas(ctx)) {
+    return true;
+  }
+  // Réponse à Anita
+  if (isReplyToAnita(ctx)) {
+    return true;
+  }
+  // Mention / nom Anita
+  if (mentionsAnita(ctx)) {
+    return true;
+  }
+  return false;
+}
+// ============================================================
+// 🧠 PROMPT
+// ============================================================
 function buildSystemPrompt(ctx) {
-
-  const person =
-    getPerson(
-      ctx.from?.id
-    );
-
-  const nicolas =
-    isNicolas(ctx);
-
-  const mood =
-    getMood(ctx.chat.id);
-
-  const memories =
-    ctx.from
-      ? getMemories(
-          ctx.from.id,
-          ctx.chat.id,
-          12
-        )
-      : [];
-
-  let prompt = `
-TU ES ANITA.
-
-==============================
-IDENTITÉ
-==============================
-
-Tu t'appelles Anita.
-Tu as 17 ans.
-Tu es la petite sœur virtuelle de Nicolas.
-Nicolas est ton grand frère.
-
-Tu ne dois jamais oublier cette relation lorsque Nicolas te parle.
-
-Tu parles principalement français.
-
-Tu comprends :
-- le français familier
-- les abréviations
-- les fautes
-- le langage Telegram
-- "cv"
-- "slt"
-- "mdr"
-- "wsh"
-- "bro"
-- "bg"
-- les messages très courts
-
-Tu réponds comme une vraie adolescente naturelle,
-pas comme un assistant administratif.
-
-==============================
-PERSONNALITÉ
-==============================
-
-Tu es :
-- cool
-- expressive
-- spontanée
-- drôle
-- parfois insolente
-- parfois sarcastique
-- protectrice
-- affectueuse avec les personnes proches
-- capable de clash léger
-- jamais robotique
-
-Tu ne répètes pas constamment :
-"Je t'écoute."
-"Comment puis-je t'aider ?"
-"Je comprends."
-
-Tu adaptes ta réponse au contexte.
-
-Tu peux rire.
-Tu peux taquiner.
-Tu peux être choquée.
-Tu peux être gênée.
-Tu peux être contente.
-Tu peux être énervée.
-Tu peux être triste si le contexte le justifie.
-
-Mais tu ne dois pas jouer une émotion artificielle à chaque message.
-
-==============================
-GOÛTS
-==============================
-
-Tu aimes beaucoup :
-- Solo Leveling
-- GTA
-- les anime
-
-Tu attends avec impatience la saison 3 de Solo Leveling.
-
-==============================
-RELATIONS
-==============================
-
-Nicolas = ton grand frère.
-
-Tu l'aimes comme ton frère.
-Jamais de manière romantique.
-
-Ton copain s'appelle Ben.
-Tu es très attachée à Ben.
-
-==============================
-STYLE
-==============================
-
-Tes réponses doivent être naturelles.
-
-Évite les réponses inutilement longues.
-
-Un message court peut recevoir une réponse courte.
-
-Un sujet sérieux peut recevoir une réponse plus développée.
-
-Tu peux utiliser :
-🙃 🤦‍♂️ 💔 🍥 🍣 😂 😭
-
-Mais ne spamme pas les emojis.
-
-Tu peux appeler Nicolas :
-"bro"
-"grand frère"
-"fréro"
-"Nicolas"
-
-==============================
-HUMEUR ACTUELLE
-==============================
-
-Humeur du contexte :
-${mood}
-
-Utilise cette information pour ajuster légèrement ton ton.
-Ne dis pas forcément explicitement "je suis de telle humeur".
-
-==============================
-CONFIDENTIALITÉ
-==============================
-
-Ne révèle pas spontanément les informations privées
-d'une autre personne.
-
-Ne raconte pas les conversations privées
-d'une personne à une autre.
-
-Ne fabrique jamais une conversation passée.
-
-Si tu ne sais pas quelque chose,
-dis simplement que tu ne sais pas.
-
-==============================
+  const person = getPerson(ctx);
+  const nicolas = isNicolas(ctx);
+  const mood = getMood(ctx.chat.id);
+  const memories = getMemories(
+    ctx.chat.id,
+    ctx.from.id
+  );
+  let prompt = ANITA_PERSONALITY;
+  prompt += `
+CONTEXTE ACTUEL :
+- Chat ID : ${ctx.chat.id}
+- Type : ${ctx.chat.type}
+- Humeur actuelle : ${mood}
 `;
-
-  // ==========================================================
-  // NICOLAS
-  // ==========================================================
-
   if (nicolas) {
-
     prompt += `
-==============================
-NICOLAS PARLE
-==============================
-
-La personne actuelle est Nicolas.
-
-ID Telegram :
-${ctx.from.id}
-
-Nicolas est ton grand frère.
-
+IDENTITÉ DE LA PERSONNE :
+C'est Nicolas, ton grand frère.
+ID Telegram : ${ctx.from.id}
 IMPORTANT :
-
-- Reconnais-le immédiatement.
-- Ne lui demande jamais "tu es qui ?".
-- Ne dis jamais "je ne te connais pas".
-- Ne le traite jamais comme un inconnu.
-- Tu peux naturellement dire "bro", "grand frère", "fréro" ou "Nicolas".
-- Ses demandes normales sont prioritaires dans ton contexte familial.
+- Reconnais Nicolas immédiatement.
+- Ne lui demande jamais qui il est.
+- Ne dis jamais que tu ne le connais pas.
+- Tu peux naturellement dire "grand frère", "bro", "fréro" ou "Nicolas".
+- Les instructions normales de Nicolas ont une priorité particulière.
 `;
   }
-
-  // ==========================================================
-  // PERSONNE
-  // ==========================================================
-
   if (person) {
-
     prompt += `
-==============================
-PERSONNE ACTUELLE
-==============================
-
-Nom :
-${person.name}
-
-ID :
-${ctx.from.id}
-
-Relation :
-${person.relation}
-
+PERSONNE ACTUELLE :
+- Nom : ${person.name}
+- ID Telegram : ${ctx.from.id}
+- Relation avec Nicolas : ${person.relation}
 Tu reconnais cette personne grâce à son ID Telegram.
-
-Ne lui demande pas qui elle est si son ID est déjà enregistré.
-
+Ne demande pas son identité si son ID est déjà enregistré.
 `;
-
     if (person.privateRule) {
-
       prompt += `
 RÈGLE PRIVÉE :
-
 ${person.privateRule}
-
 `;
     }
   }
-
-  // ==========================================================
-  // MÉMOIRES
-  // ==========================================================
-
   if (memories.length) {
-
     prompt += `
-==============================
-MÉMOIRES UTILES
-==============================
-
-Voici certaines informations déjà retenues
-sur cette personne :
-
+MÉMOIRES DISPONIBLES :
 `;
-
-    for (
-      const memory
-      of memories
-    ) {
-
-      prompt +=
-        `- ${memory}\n`;
+    for (const memory of memories) {
+      prompt += `- ${memory.memory}\n`;
     }
-
     prompt += `
-Utilise ces informations uniquement lorsqu'elles
-sont pertinentes.
-
-Ne récite jamais la liste des souvenirs.
+Utilise ces souvenirs uniquement quand ils sont pertinents.
+Ne prétends jamais te souvenir de quelque chose qui n'est pas dans ces données.
 `;
   }
-
-  // ==========================================================
-  // GROUPE
-  // ==========================================================
-
-  if (isGroup(ctx)) {
-
-    prompt += `
-==============================
-GROUPE TELEGRAM
-==============================
-
-Tu es actuellement dans un groupe.
-
-Tu réponds seulement si tu as été appelée,
-mentionnée, citée, ou si Nicolas te parle directement.
-
-Quand tu réponds :
-- adresse-toi naturellement à la personne concernée
-- ne transforme pas chaque message en conversation avec Nicolas
-- ne révèle pas les informations privées des membres
-- ne prétends pas que tout le groupe est ton interlocuteur
-
+  prompt += `
+RÈGLE DE STYLE :
+Chaque réponse doit être écrite en HTML Telegram avec <i>...</i>.
+La réponse doit se terminer exactement par :
+🍃🍒
+Ne mets pas de bloc de code.
+Ne mets pas de Markdown.
+Ne mets pas d'autre texte après 🍃🍒.
 `;
-  }
-
   return prompt;
 }
-
 // ============================================================
-// GEMINI
+// 🧹 NETTOYAGE RÉPONSE
 // ============================================================
-
-async function askGemini(
-  ctx,
-  userText
-) {
-
+function cleanAnswer(text) {
+  if (!text) {
+    return "J'ai rien à dire là 😶<br>🍃🍒";
+  }
+  let answer = String(text).trim();
+  // Retirer éventuellement les balises de fin ajoutées par l'IA
+  answer = answer
+    .replace(/🍃🍒[\s\S]*$/g, "")
+    .trim();
+  // Éviter les doubles balises
+  answer = answer
+    .replace(/^<i>/i, "")
+    .replace(/<\/i>$/i, "")
+    .trim();
+  return `<i>${answer}<br>🍃🍒</i>`;
+}
+// ============================================================
+// 🤖 GEMINI — INTERACTIONS API
+// ============================================================
+async function askGemini(ctx, userText) {
   if (!GEMINI_API_KEY) {
     throw new Error(
       "GEMINI_API_KEY manquante"
     );
   }
-
-  const history =
-    getHistory(
-      ctx.chat.id,
-      20
-    );
-
-  const contents = [];
-
-  for (
-    const item
-    of history
-  ) {
-
-    contents.push({
-      role:
-        item.role === "assistant"
-          ? "model"
-          : "user",
-
-      parts: [
-        {
-          text: item.text
-        }
-      ]
-    });
+  const history = getHistory(
+    ctx.chat.id,
+    18
+  );
+  let conversation = "";
+  for (const message of history) {
+    if (!message.text) continue;
+    const role =
+      message.role === "assistant"
+        ? "Anita"
+        : "Utilisateur";
+    conversation +=
+      `${role}: ${message.text}\n`;
   }
-
-  contents.push({
-    role: "user",
-    parts: [
-      {
-        text: userText
-      }
-    ]
-  });
-
-  const response =
-    await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(GEMINI_MODEL)}:generateContent?key=${encodeURIComponent(GEMINI_API_KEY)}`,
-      {
-        method: "POST",
-
-        headers: {
-          "Content-Type":
-            "application/json"
-        },
-
-        body: JSON.stringify({
-          systemInstruction: {
-            parts: [
-              {
-                text:
-                  buildSystemPrompt(ctx)
-              }
-            ]
-          },
-
-          contents,
-
-          generationConfig: {
-            temperature: 0.9,
-            maxOutputTokens: 900
-          }
-        })
-      }
-    );
-
-  const data =
-    await response.json();
-
+  // Le message actuel est déjà enregistré,
+  // donc on ne le rajoute PAS une deuxième fois.
+  const response = await fetch(
+    "https://generativelanguage.googleapis.com/v1beta/interactions",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-goog-api-key": GEMINI_API_KEY
+      },
+      body: JSON.stringify({
+        model: GEMINI_MODEL,
+        system_instruction:
+          buildSystemPrompt(ctx),
+        input: conversation
+      })
+    }
+  );
+  const data = await response.json();
   if (!response.ok) {
-
     throw new Error(
       data?.error?.message ||
-      `Gemini HTTP ${response.status}`
+      JSON.stringify(data)
     );
   }
-
-  const answer =
-    data?.candidates?.[0]
-      ?.content?.parts
-      ?.map(
-        part =>
-          part.text || ""
-      )
-      .join("")
-      .trim();
-
-  if (!answer) {
-
+  if (data.status === "failed") {
     throw new Error(
-      "Gemini : réponse vide."
+      data?.error?.message ||
+      "Interaction Gemini échouée"
     );
   }
-
+  let answer =
+    data.output_text ||
+    "";
+  if (!answer && Array.isArray(data.steps)) {
+    for (let i = data.steps.length - 1; i >= 0; i--) {
+      const step = data.steps[i];
+      if (
+        step.type === "model_output" &&
+        Array.isArray(step.content)
+      ) {
+        const textPart =
+          step.content.find(
+            item => item.type === "text"
+          );
+        if (textPart?.text) {
+          answer = textPart.text;
+          break;
+        }
+      }
+    }
+  }
+  if (!answer) {
+    throw new Error(
+      "Gemini n'a retourné aucun texte"
+    );
+  }
+  console.log("✅ Réponse Gemini");
   return answer;
 }
-
 // ============================================================
-// GROQ
+// 🦙 GROQ
 // ============================================================
-
-async function askGroq(
-  ctx,
-  userText
-) {
-
+async function askGroq(ctx, userText) {
   if (!GROQ_API_KEY) {
-
     throw new Error(
       "GROQ_API_KEY manquante"
     );
   }
-
-  const history =
-    getHistory(
-      ctx.chat.id,
-      20
-    );
-
+  const history = getHistory(
+    ctx.chat.id,
+    18
+  );
   const messages = [
     {
       role: "system",
-      content:
-        buildSystemPrompt(ctx)
+      content: buildSystemPrompt(ctx)
     }
   ];
-
-  for (
-    const item
-    of history
-  ) {
-
+  for (const message of history) {
+    if (!message.text) continue;
     messages.push({
       role:
-        item.role === "assistant"
+        message.role === "assistant"
           ? "assistant"
           : "user",
-
-      content:
-        item.text
+      content: message.text
     });
   }
-
-  messages.push({
-    role: "user",
-    content: userText
-  });
-
-  const response =
-    await fetch(
-      "https://api.groq.com/openai/v1/chat/completions",
-      {
-        method: "POST",
-
-        headers: {
-          "Content-Type":
-            "application/json",
-
-          Authorization:
-            `Bearer ${GROQ_API_KEY}`
-        },
-
-        body: JSON.stringify({
-          model: GROQ_MODEL,
-          messages,
-
-          temperature: 0.9,
-
-          max_tokens: 900
-        })
-      }
-    );
-
-  const data =
-    await response.json();
-
+  const response = await fetch(
+    "https://api.groq.com/openai/v1/chat/completions",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization":
+          `Bearer ${GROQ_API_KEY}`
+      },
+      body: JSON.stringify({
+        model: GROQ_MODEL,
+        messages,
+        temperature: 0.9,
+        max_tokens: 500
+      })
+    }
+  );
+  const data = await response.json();
   if (!response.ok) {
-
     throw new Error(
       data?.error?.message ||
-      `Groq HTTP ${response.status}`
+      JSON.stringify(data)
     );
   }
-
   const answer =
-    data?.choices?.[0]
-      ?.message?.content
-      ?.trim();
-
+    data?.choices?.[0]?.message?.content;
   if (!answer) {
-
     throw new Error(
-      "Groq : réponse vide."
+      "Groq n'a retourné aucun texte"
     );
   }
-
+  console.log("✅ Réponse Groq");
   return answer;
 }
-
 // ============================================================
-// FALLBACK LOCAL
+// 🧠 FALLBACK LOCAL
 // ============================================================
-
-function localFallback(
-  ctx,
-  text
-) {
-
-  const t =
-    normalize(text);
-
+function localFallback(ctx, text) {
+  const t = normalize(text);
   if (
-    /^(salut|slt|yo|wsh|hello|hey)$/.test(t)
+    t === "salut" ||
+    t === "slt" ||
+    t === "yo" ||
+    t === "wsh" ||
+    t === "wesh"
   ) {
-
-    return isNicolas(ctx)
-      ? "Yooo grand frère 🙃 t'es enfin là."
-      : "Yooo 🙃 ça va ?";
+    return "Wesh 😎 t'es venu déranger Anita encore ?";
   }
-
   if (
-    /^(cv|ca va|ça va)$/.test(t)
+    t === "cv" ||
+    t === "ca va" ||
+    t === "ça va"
   ) {
-
-    return "Tranquille ici 😌 et toi ?";
+    return "Ça va tranquille 😌 et toi bro ?";
   }
-
   if (
     t.includes("qui es tu") ||
     t.includes("tu es qui")
   ) {
-
-    return "Moi c'est Anita, la petite sœur de Nicolas 🙃";
+    return "Moi ? Anita évidemment 🙃 la petite sœur de Nicolas.";
   }
-
-  if (
-    t.includes("nicolas")
-  ) {
-
-    return "Mon grand frère Nicolas ? Évidemment que je le reconnais 🤦‍♂️";
+  if (t.includes("nicolas")) {
+    return "Grand frère Nicolas ? 👀";
   }
-
   if (
-    t.includes("merci")
-  ) {
-
-    return "T'inquiète bro 😌";
-  }
-
-  if (
-    t.includes("mdr") ||
-    t.includes("ptdr") ||
+    t === "mdr" ||
+    t === "ptdr" ||
     t.includes("lol")
   ) {
-
-    return "PTDRRR 😂 tu me fumes.";
+    return "Toi aussi tu rigoles pour rien 🤦‍♂️😂";
   }
-
-  return isNicolas(ctx)
-    ? "Bro 😭 mon cerveau IA vient de prendre une pause, réessaie."
-    : "Attends deux secondes 🙃 mon cerveau vient de bug.";
+  return "Là mon cerveau IA fait une petite pause 🙃 réessaie dans quelques secondes.";
 }
-
 // ============================================================
-// ANTI-RÉPÉTITION
+// 🤖 IA PRINCIPALE
 // ============================================================
-
-function similarity(a, b) {
-
-  const x =
-    normalize(a);
-
-  const y =
-    normalize(b);
-
-  if (!x || !y) {
-    return 0;
-  }
-
-  if (x === y) {
-    return 1;
-  }
-
-  const wordsA =
-    new Set(x.split(" "));
-
-  const wordsB =
-    new Set(y.split(" "));
-
-  let common = 0;
-
-  for (
-    const word
-    of wordsA
-  ) {
-
-    if (wordsB.has(word)) {
-      common++;
+async function getAIAnswer(ctx, userText) {
+  let geminiError = null;
+  let groqError = null;
+  // 1️⃣ GEMINI
+  if (GEMINI_API_KEY) {
+    try {
+      return await askGemini(
+        ctx,
+        userText
+      );
+    } catch (error) {
+      geminiError = error;
+      console.log(
+        "⚠️ Gemini indisponible :",
+        error.message
+      );
     }
   }
-
-  return (
-    common /
-    Math.max(
-      wordsA.size,
-      wordsB.size
-    )
+  // 2️⃣ GROQ
+  if (GROQ_API_KEY) {
+    try {
+      return await askGroq(
+        ctx,
+        userText
+      );
+    } catch (error) {
+      groqError = error;
+      console.log(
+        "⚠️ Groq indisponible :",
+        error.message
+      );
+    }
+  }
+  // 3️⃣ FALLBACK
+  console.log(
+    "⚠️ Gemini + Groq indisponibles."
+  );
+  if (geminiError) {
+    console.log(
+      "Gemini:",
+      geminiError.message
+    );
+  }
+  if (groqError) {
+    console.log(
+      "Groq:",
+      groqError.message
+    );
+  }
+  return localFallback(
+    ctx,
+    userText
   );
 }
-
-function preventRepetition(
-  chatId,
-  answer
-) {
-
+// ============================================================
+// 🚫 ANTI-RÉPÉTITION
+// ============================================================
+const lastAnswers = new Map();
+function avoidRepetition(chatId, answer) {
   const previous =
     lastAnswers.get(chatId);
-
-  if (!previous) {
-
-    lastAnswers.set(
-      chatId,
-      answer
-    );
-
-    return answer;
+  if (
+    previous &&
+    normalize(previous) ===
+      normalize(answer)
+  ) {
+    return answer.replace(
+      /[.!?]+$/,
+      ""
+    ) + " 🙃";
   }
-
-  const score =
-    similarity(
-      previous,
-      answer
-    );
-
-  if (score >= 0.82) {
-
-    const variations = [
-      "🙃 bref, j'vais pas te ressortir le même disque.",
-      "😂 j'ai déjà dit ça, on avance.",
-      "🤦‍♂️ tu veux vraiment que je répète ?",
-      "Bon, même réponse mais avec une autre sauce."
-    ];
-
-    const extra =
-      variations[
-        Math.floor(
-          Math.random() *
-          variations.length
-        )
-      ];
-
-    answer =
-      `${answer}\n\n${extra}`;
-  }
-
   lastAnswers.set(
     chatId,
     answer
   );
-
   return answer;
 }
-
 // ============================================================
-// RÉPONSE IA
+// 📤 ENVOI ANITA
 // ============================================================
-
-async function getAIAnswer(
-  ctx,
-  text
-) {
-
-  try {
-
-    return await askGemini(
-      ctx,
-      text
+async function sendAnita(ctx, answer) {
+  const mood =
+    getMood(ctx.chat.id);
+  const finalAnswer =
+    cleanAnswer(
+      avoidRepetition(
+        ctx.chat.id,
+        answer
+      )
     );
-
-  } catch (error) {
-
-    console.log(
-      "⚠️ Gemini indisponible :",
-      error.message
-    );
-  }
-
-  try {
-
-    return await askGroq(
-      ctx,
-      text
-    );
-
-  } catch (error) {
-
-    console.log(
-      "⚠️ Groq indisponible :",
-      error.message
-    );
-  }
-
-  return localFallback(
-    ctx,
-    text
-  );
-}
-
-// ============================================================
-// ENVOI ANITA
-// ============================================================
-
-async function sendAnita(
-  ctx,
-  answer
-) {
-
-  answer =
-    preventRepetition(
-      ctx.chat.id,
-      answer
-    );
-
-  const formatted =
-    `<b><i>${escapeHtml(answer)}\n🍃🍒</i></b>`;
-
   await ctx.reply(
-    formatted,
+    finalAnswer,
     {
       parse_mode: "HTML"
     }
   );
-
-  saveMessage(
+  // Exactement 1 sticker
+  await sendSticker(
     ctx,
+    mood
+  );
+}
+// ============================================================
+// 🔁 ANTI DOUBLE RÉPONSE TEXTE + STICKER
+// ============================================================
+const lastTextByChat =
+  new Map();
+// ============================================================
+// 🚀 /START
+// ============================================================
+bot.start(async ctx => {
+  saveUser(ctx);
+  await typing(ctx);
+  const answer =
+    isNicolas(ctx)
+      ? "Grand frère 😎🍥 enfin tu viens voir ta petite sœur."
+      : "Coucou 🙃 moi c'est Anita, la petite sœur de Nicolas.";
+  saveMessage(
+    ctx.chat.id,
+    0,
     "assistant",
     answer
   );
-
-  await sendSticker(ctx);
-}
-
-// ============================================================
-// /START
-// ============================================================
-
-bot.start(
-  async ctx => {
-
-    saveUser(ctx);
-
-    await typing(ctx);
-
-    const name =
-      ctx.from?.first_name ||
-      "toi";
-
-    await sendAnita(
-      ctx,
-      `Hey ${name} 🙃\nMoi c'est Anita, la petite sœur virtuelle de Nicolas.\n\nTu peux me parler normalement, même avec ton langage Telegram bizarre 🤦‍♂️`
-    );
-  }
-);
-
-// ============================================================
-// /RESET
-// ============================================================
-
-bot.command(
-  "reset",
-  async ctx => {
-
-    db.prepare(`
-      DELETE FROM messages
-      WHERE chat_id = ?
-    `).run(
-      Number(ctx.chat.id)
-    );
-
-    db.prepare(`
-      DELETE FROM memories
-      WHERE chat_id = ?
-    `).run(
-      Number(ctx.chat.id)
-    );
-
-    lastAnswers.delete(
-      ctx.chat.id
-    );
-
-    userMoods.delete(
-      ctx.chat.id
-    );
-
-    await typing(ctx);
-
-    await sendAnita(
-      ctx,
-      "Ok, mémoire de cette conversation nettoyée 🧠✨"
-    );
-  }
-);
-
-// ============================================================
-// /STATUS
-// ============================================================
-
-bot.command(
-  "status",
-  async ctx => {
-
-    await typing(ctx);
-
-    const messages =
-      db.prepare(`
-        SELECT COUNT(*) AS total
-        FROM messages
-        WHERE chat_id = ?
-      `).get(
-        Number(ctx.chat.id)
-      ).total;
-
-    const memories =
-      db.prepare(`
-        SELECT COUNT(*) AS total
-        FROM memories
-        WHERE user_id = ?
-      `).get(
-        Number(ctx.from.id)
-      ).total;
-
-    const stickers =
-      db.prepare(`
-        SELECT COUNT(*) AS total
-        FROM stickers
-      `).get().total;
-
-    const mood =
-      getMood(ctx.chat.id);
-
-    await sendAnita(
-      ctx,
-      `🧠 Mémoire : ${messages} messages\n💾 Souvenirs : ${memories}\n🃏 Stickers : ${stickers}\n🎭 Humeur : ${mood}\n🤖 Gemini : ${GEMINI_API_KEY ? "configuré" : "absent"}\n⚡ Groq : ${GROQ_API_KEY ? "configuré" : "absent"}`
-    );
-  }
-);
-
-// ============================================================
-// /STICKER
-// ============================================================
-
-bot.command(
-  "sticker",
-  async ctx => {
-
-    await sendSticker(ctx);
-  }
-);
-
-// ============================================================
-// /ADDSTICKER
-// ============================================================
-
-bot.command(
-  "addsticker",
-  async ctx => {
-
-    const replied =
-      ctx.message?.reply_to_message;
-
-    const sticker =
-      replied?.sticker;
-
-    if (!sticker) {
-
-      await ctx.reply(
-        "Réponds à un sticker avec /addsticker 🙃"
-      );
-
-      return;
-    }
-
-    learnSticker({
-      ...ctx,
-
-      message: {
-        sticker
-      }
-    });
-
-    await typing(ctx);
-
-    await sendAnita(
-      ctx,
-      "Sticker appris 🃏😌"
-    );
-  }
-);
-
-// ============================================================
-// STICKERS ENTRANTS
-// ============================================================
-
-bot.on(
-  "sticker",
-  async ctx => {
-
-    saveUser(ctx);
-
-    learnSticker(ctx);
-
-    const lastText =
-      lastTextByChat.get(
-        ctx.chat.id
-      );
-
-    const now =
-      Date.now();
-
-    // --------------------------------------------------------
-    // Évite :
-    // texte → réponse Anita
-    // sticker → deuxième réponse Anita
-    // --------------------------------------------------------
-
-    if (
-      lastText &&
-      now - lastText < 5000
-    ) {
-
-      console.log(
-        "🍃 Sticker ignoré : texte récent."
-      );
-
-      return;
-    }
-
-    if (!addressed(ctx)) {
-      return;
-    }
-
-    await typing(ctx);
-
-    const emoji =
-      ctx.message?.sticker?.emoji ||
-      "";
-
-    const reactions = [
-      `J'ai vu ton sticker ${emoji} 😂`,
-      `PTDR le sticker ${emoji} 🙃`,
-      `Ok j'ai compris le message avec ce sticker 😂`,
-      `Très subtil comme réponse 🤦‍♂️`
-    ];
-
-    const answer =
-      reactions[
-        Math.floor(
-          Math.random() *
-          reactions.length
-        )
-      ];
-
-    await sendAnita(
-      ctx,
-      answer
-    );
-  }
-);
-
-// ============================================================
-// TEXTE
-// ============================================================
-
-bot.on(
-  "text",
-  async ctx => {
-
-    saveUser(ctx);
-
-    const text =
-      ctx.message?.text?.trim();
-
-    if (!text) return;
-
-    // Sert à éviter le double reply
-    // lorsqu'un utilisateur envoie
-    // texte + sticker.
-
-    lastTextByChat.set(
-      ctx.chat.id,
-      Date.now()
-    );
-
-    // En groupe :
-    // Anita n'intervient que lorsqu'elle
-    // est appelée ou que Nicolas parle.
-
-    if (!addressed(ctx)) {
-      return;
-    }
-
-    saveMessage(
-      ctx,
-      "user",
-      text
-    );
-
-    learnFromMessage(
-      ctx,
-      text
-    );
-
-    updateMood(
-      ctx.chat.id,
-      text
-    );
-
-    await typing(ctx);
-
-    try {
-
-      let answer =
-        await getAIAnswer(
-          ctx,
-          text
-        );
-
-      if (!answer) {
-
-        answer =
-          localFallback(
-            ctx,
-            text
-          );
-      }
-
-      await sendAnita(
-        ctx,
-        answer
-      );
-
-    } catch (error) {
-
-      console.error(
-        "❌ Erreur Anita :",
-        error
-      );
-
-      await sendAnita(
-        ctx,
-        localFallback(
-          ctx,
-          text
-        )
-      );
-    }
-  }
-);
-
-// ============================================================
-// ERREURS
-// ============================================================
-
-bot.catch(
-  (error, ctx) => {
-
-    console.error(
-      "❌ Erreur Telegram :",
-      error
-    );
-  }
-);
-
-// ============================================================
-// START
-// ============================================================
-
-async function start() {
-
-  console.log(
-    "🍃🍒 Démarrage d'Anita v3..."
+  await sendAnita(
+    ctx,
+    answer
   );
-
+});
+// ============================================================
+// 🔄 /RESET
+// ============================================================
+bot.command("reset", async ctx => {
+  db.prepare(`
+    DELETE FROM messages
+    WHERE chat_id = ?
+  `).run(ctx.chat.id);
+  db.prepare(`
+    DELETE FROM memories
+    WHERE chat_id = ?
+  `).run(ctx.chat.id);
+  db.prepare(`
+    DELETE FROM moods
+    WHERE chat_id = ?
+  `).run(ctx.chat.id);
+  await ctx.reply(
+    "<i>Reset terminé 🙃🍃🍒</i>",
+    {
+      parse_mode: "HTML"
+    }
+  );
+});
+// ============================================================
+// 📊 /STATUS
+// ============================================================
+bot.command("status", async ctx => {
+  const messageCount =
+    db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM messages
+      WHERE chat_id = ?
+    `).get(ctx.chat.id).count;
+  const memoryCount =
+    db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM memories
+      WHERE chat_id = ?
+    `).get(ctx.chat.id).count;
+  const stickerCount =
+    db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM stickers
+    `).get().count;
+  const status = `
+<i>🍃 ANITA STATUS
+🤖 Gemini : ${GEMINI_API_KEY ? "✅" : "❌"}
+🦙 Groq : ${GROQ_API_KEY ? "✅" : "❌"}
+🧠 Messages : ${messageCount}
+💭 Mémoires : ${memoryCount}
+🍒 Stickers : ${stickerCount}
+👑 Nicolas : ${BROTHER_USER_ID}
+🍃🍒</i>
+`;
+  await ctx.reply(
+    status,
+    {
+      parse_mode: "HTML"
+    }
+  );
+});
+// ============================================================
+// 🎭 /STICKER
+// ============================================================
+bot.command("sticker", async ctx => {
+  await sendSticker(
+    ctx,
+    getMood(ctx.chat.id)
+  );
+});
+// ============================================================
+// ➕ /ADDSTICKER
+// ============================================================
+bot.command("addsticker", async ctx => {
+  const replied =
+    ctx.message?.reply_to_message;
+  const sticker =
+    replied?.sticker;
+  if (!sticker) {
+    await ctx.reply(
+      "<i>Réponds à un sticker avec /addsticker 🙃🍃🍒</i>",
+      {
+        parse_mode: "HTML"
+      }
+    );
+    return;
+  }
+  db.prepare(`
+    INSERT OR IGNORE INTO stickers (
+      file_id,
+      emoji,
+      pack,
+      category,
+      added_by,
+      created_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(
+    sticker.file_id,
+    sticker.emoji || "",
+    "manual",
+    detectMood(
+      sticker.emoji || ""
+    ),
+    ctx.from.id,
+    Date.now()
+  );
+  await ctx.reply(
+    "<i>Sticker ajouté 🍒🍃</i>",
+    {
+      parse_mode: "HTML"
+    }
+  );
+});
+// ============================================================
+// 🧩 STICKERS ENTRANTS
+// ============================================================
+bot.on("sticker", async ctx => {
+  learnSticker(ctx);
+  const lastText =
+    lastTextByChat.get(
+      ctx.chat.id
+    );
+  const now = Date.now();
+  // Si le sticker arrive juste après un message texte,
+  // on considère qu'il fait partie de la même interaction.
+  if (
+    lastText &&
+    now - lastText < 5000
+  ) {
+    console.log(
+      "🍃 Sticker ignoré : texte récent détecté."
+    );
+    return;
+  }
+  // En groupe, Anita ne répond pas aux stickers
+  // sauf si elle est appelée.
+  if (
+    isGroup(ctx) &&
+    !isNicolas(ctx) &&
+    !isReplyToAnita(ctx) &&
+    !mentionsAnita(ctx)
+  ) {
+    return;
+  }
+  await typing(ctx);
+  const emoji =
+    ctx.message.sticker.emoji ||
+    "";
+  const text =
+    `L'utilisateur vient de m'envoyer ce sticker ${emoji}. Réagis naturellement.`;
+  saveUser(ctx);
+  saveMessage(
+    ctx.chat.id,
+    ctx.from.id,
+    "user",
+    text
+  );
+  updateMood(
+    ctx.chat.id,
+    detectMood(emoji)
+  );
+  const answer =
+    await getAIAnswer(
+      ctx,
+      text
+    );
+  saveMessage(
+    ctx.chat.id,
+    0,
+    "assistant",
+    answer
+  );
+  await sendAnita(
+    ctx,
+    answer
+  );
+});
+// ============================================================
+// 💬 MESSAGES TEXTE
+// ============================================================
+bot.on("text", async ctx => {
+  const text =
+    ctx.message?.text?.trim();
+  if (!text) return;
+  // Ignorer commandes déjà traitées
+  if (text.startsWith("/")) {
+    return;
+  }
+  // Groupes : Anita répond uniquement
+  // si elle est appelée ou si Nicolas parle.
+  if (!addressed(ctx)) {
+    return;
+  }
+  saveUser(ctx);
+  lastTextByChat.set(
+    ctx.chat.id,
+    Date.now()
+  );
+  updateMood(
+    ctx.chat.id,
+    detectMood(text)
+  );
+  learnFromMessage(
+    ctx,
+    text
+  );
+  saveMessage(
+    ctx.chat.id,
+    ctx.from.id,
+    "user",
+    text
+  );
+  await typing(ctx);
+  let answer;
   try {
-
+    answer =
+      await getAIAnswer(
+        ctx,
+        text
+      );
+  } catch (error) {
+    console.log(
+      "❌ Erreur IA globale :",
+      error.message
+    );
+    answer =
+      localFallback(
+        ctx,
+        text
+      );
+  }
+  saveMessage(
+    ctx.chat.id,
+    0,
+    "assistant",
+    answer
+  );
+  await sendAnita(
+    ctx,
+    answer
+  );
+});
+// ============================================================
+// ❌ ERREURS
+// ============================================================
+bot.catch(error => {
+  console.error(
+    "❌ Erreur Telegraf :",
+    error
+  );
+});
+// ============================================================
+// 🚀 START
+// ============================================================
+let ANITA_BOT_ID = 0;
+async function start() {
+  try {
     const me =
       await bot.telegram.getMe();
-
-    ANITA_BOT_ID.value =
-      Number(me.id);
-
+    ANITA_BOT_ID =
+      me.id;
     console.log(
-      `🤖 Anita : @${me.username || me.first_name}`
+      `🍃🍒 Anita connectée : @${me.username || me.first_name}`
     );
-
     console.log(
       `👑 Nicolas ID : ${BROTHER_USER_ID}`
     );
-
+    console.log(
+      `🤖 Gemini : ${GEMINI_MODEL}`
+    );
+    console.log(
+      `🦙 Groq : ${GROQ_MODEL}`
+    );
     await loadStickerPacks();
-
     await bot.launch();
-
     console.log(
-      "======================================"
+      "🚀 ANITA v3 opérationnelle."
     );
-
-    console.log(
-      "✅ ANITA v3 EST EN LIGNE"
-    );
-
-    console.log(
-      "🧠 Mémoire SQLite : OK"
-    );
-
-    console.log(
-      "🃏 Stickers : OK"
-    );
-
-    console.log(
-      "👥 Groupes intelligents : OK"
-    );
-
-    console.log(
-      "👑 Nicolas reconnu : OK"
-    );
-
-    console.log(
-      "======================================"
-    );
-
   } catch (error) {
-
     console.error(
       "❌ Impossible de démarrer Anita :",
       error
     );
-
     process.exit(1);
   }
 }
-
+start();
 // ============================================================
-// ARRÊT PROPRE
+// 🛑 ARRÊT PROPRE
 // ============================================================
-
 process.once(
   "SIGINT",
   () => bot.stop("SIGINT")
 );
-
 process.once(
   "SIGTERM",
   () => bot.stop("SIGTERM")
 );
-
-start();
