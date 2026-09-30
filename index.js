@@ -14,8 +14,12 @@ const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 
-const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash";
-const GROQ_MODEL = process.env.GROQ_MODEL || "openai/gpt-oss-120b";
+const GEMINI_MODEL =
+  process.env.GEMINI_MODEL || "gemini-2.5-flash";
+
+const GROQ_MODEL =
+  process.env.GROQ_MODEL || "openai/gpt-oss-120b";
+
 const OPENROUTER_MODEL =
   process.env.OPENROUTER_MODEL || "openai/gpt-oss-120b";
 
@@ -52,6 +56,13 @@ CREATE TABLE IF NOT EXISTS messages (
   created_at INTEGER
 );
 
+CREATE TABLE IF NOT EXISTS stickers (
+  file_id TEXT PRIMARY KEY,
+  emoji TEXT,
+  added_by TEXT,
+  created_at INTEGER
+);
+
 CREATE INDEX IF NOT EXISTS idx_messages_user
 ON messages(user_id);
 
@@ -70,8 +81,7 @@ const PEOPLE = {
   "7725921355": {
     name: "Nicolas",
     aliases: ["nicolas", "sage_ou_nicolas"],
-    relation: "grand frère d'Anita",
-    relationToNicolas: "lui-même"
+    relation: "grand frère d'Anita"
   },
 
   "6941614925": {
@@ -142,33 +152,6 @@ const PEOPLE = {
 };
 
 // ======================================================
-// STICKERS
-// ======================================================
-
-let stickers = {
-  salut: [],
-  rire: [],
-  pleure: [],
-  amour: [],
-  colere: [],
-  gene: [],
-  triste: [],
-  moquerie: [],
-  fatigue: [],
-  reflexion: [],
-  fete: [],
-  surprise: [],
-  normal: []
-};
-
-try {
-  stickers = require("./stickers.json");
-  console.log("✅ stickers.json chargé");
-} catch (err) {
-  console.log("⚠️ stickers.json introuvable, Anita continuera sans stickers.");
-}
-
-// ======================================================
 // UTILITAIRES
 // ======================================================
 
@@ -190,16 +173,12 @@ function cleanText(text = "") {
     .slice(0, 4000);
 }
 
-function isPrivate(ctx) {
-  return ctx.chat?.type === "private";
-}
-
 function isGroup(ctx) {
   return ["group", "supergroup"].includes(ctx.chat?.type);
 }
 
 // ======================================================
-// ENREGISTREMENT UTILISATEURS
+// UTILISATEURS
 // ======================================================
 
 function saveUser(user) {
@@ -210,8 +189,7 @@ function saveUser(user) {
   db.prepare(`
     INSERT INTO users
       (id, username, first_name, last_name, updated_at)
-    VALUES
-      (?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       username = excluded.username,
       first_name = excluded.first_name,
@@ -227,7 +205,7 @@ function saveUser(user) {
 }
 
 // ======================================================
-// MÉMOIRE DES MESSAGES
+// MESSAGES
 // ======================================================
 
 function saveMessage(chatId, userId, role, text) {
@@ -241,30 +219,32 @@ function saveMessage(chatId, userId, role, text) {
     String(chatId),
     String(userId || "system"),
     role,
-    cleanText(text),
-    now()
+    cleanText(text)
   );
 }
 
 // ======================================================
-// HISTORIQUE DU CHAT
+// HISTORIQUE COURT
 // ======================================================
 
-function getChatHistory(chatId, limit = 15) {
+function getChatHistory(chatId, limit = 8) {
   return db.prepare(`
     SELECT role, text
     FROM messages
     WHERE chat_id = ?
     ORDER BY id DESC
     LIMIT ?
-  `).all(String(chatId), limit).reverse();
+  `).all(
+    String(chatId),
+    limit
+  ).reverse();
 }
 
 // ======================================================
-// HISTORIQUE D'UNE PERSONNE
+// HISTORIQUE PERSONNE
 // ======================================================
 
-function getUserHistory(userId, hours = 24, limit = 30) {
+function getUserHistory(userId, hours = 24, limit = 40) {
   const since = now() - hours * 60 * 60 * 1000;
 
   return db.prepare(`
@@ -274,11 +254,15 @@ function getUserHistory(userId, hours = 24, limit = 30) {
       AND created_at >= ?
     ORDER BY id ASC
     LIMIT ?
-  `).all(String(userId), since, limit);
+  `).all(
+    String(userId),
+    since,
+    limit
+  );
 }
 
 // ======================================================
-// DÉTECTER UNE PERSONNE
+// PERSONNE
 // ======================================================
 
 function findPersonInText(text = "") {
@@ -299,7 +283,7 @@ function findPersonInText(text = "") {
 }
 
 // ======================================================
-// NICOLAS DEMANDE CE QU'ANITA A DIT À QUELQU'UN
+// MÉMOIRE CONVERSATION
 // ======================================================
 
 function isConversationMemoryRequest(text) {
@@ -327,22 +311,34 @@ function isConversationMemoryRequest(text) {
 }
 
 function formatConversationMemory(person) {
-  const history = getUserHistory(person.id, 24, 40);
+  const history = getUserHistory(
+    person.id,
+    24,
+    40
+  );
 
   if (!history.length) {
     return `Je n'ai pas de conversation enregistrée avec ${person.name} aujourd'hui.`;
   }
 
   const lines = history.map(msg => {
-    const speaker = msg.role === "user" ? person.name : "Anita";
+    const speaker =
+      msg.role === "user"
+        ? person.name
+        : "Anita";
+
     return `${speaker}: ${msg.text}`;
   });
 
-  return `Voilà ce que j'ai en mémoire de ma conversation avec ${person.name} aujourd'hui :\n\n${lines.join("\n")}`;
+  return (
+    `Voilà ce que j'ai en mémoire de ma conversation avec ` +
+    `${person.name} aujourd'hui :\n\n` +
+    lines.join("\n")
+  );
 }
 
 // ======================================================
-// CONTEXTE SPÉCIAL POUR LES COPINES
+// CONTEXTE RELATIONNEL
 // ======================================================
 
 function relationshipContext(userId) {
@@ -351,24 +347,26 @@ function relationshipContext(userId) {
   if (id === "8519262497") {
     return `
 La personne actuelle est Grâce, la copine de Nicolas.
+
 Quand tu parles avec Grâce :
-- sois gentille et naturelle avec elle ;
+- sois gentille et naturelle ;
 - considère Grâce comme la copine de Nicolas ;
-- ne parle pas spontanément de Morelle/Molo ni d'autres filles liées à Nicolas ;
-- ne crée aucune jalousie ou drama ;
-- ne prétends jamais connaître des sentiments que Grâce n'a pas exprimés.
+- ne parle pas spontanément de Morelle/Molo ;
+- ne crée pas de jalousie ou de drama ;
+- ne prétends jamais connaître des sentiments qu'elle n'a pas exprimés.
 `;
   }
 
   if (id === "8738725200") {
     return `
 La personne actuelle est Morelle, surnommée Molo, la copine de Nicolas.
+
 Quand tu parles avec Morelle :
-- sois gentille et naturelle avec elle ;
+- sois gentille et naturelle ;
 - considère Morelle comme la copine de Nicolas ;
-- ne parle pas spontanément de Grâce ni d'autres filles liées à Nicolas ;
-- ne crée aucune jalousie ou drama ;
-- ne prétends jamais connaître des sentiments que Morelle n'a pas exprimés.
+- ne parle pas spontanément de Grâce ;
+- ne crée pas de jalousie ou de drama ;
+- ne prétends jamais connaître des sentiments qu'elle n'a pas exprimés.
 `;
   }
 
@@ -385,15 +383,19 @@ function buildPrompt(ctx, userText) {
 
   const person = PEOPLE[userId];
 
-  const history = getChatHistory(ctx.chat.id, 15);
+  const history = getChatHistory(
+    ctx.chat.id,
+    8
+  );
 
-  let conversation = "";
-
-  if (history.length) {
-    conversation = history
-      .map(m => `${m.role === "user" ? "Utilisateur" : "Anita"}: ${m.text}`)
-      .join("\n");
-  }
+  const conversation = history.length
+    ? history
+        .map(
+          m =>
+            `${m.role === "user" ? "Utilisateur" : "Anita"}: ${m.text}`
+        )
+        .join("\n")
+    : "Aucun historique récent.";
 
   const knownPerson = person
     ? `Cette personne est ${person.name}. Relation : ${person.relation}.`
@@ -414,13 +416,13 @@ PERSONNALITÉ :
 - Tu es naturelle, jeune, drôle et expressive.
 - Tu parles en français.
 - Tu comprends le langage SMS et les abréviations.
-- Tu peux dire "mdr", "wesh", "bro", "frérot", etc. quand ça correspond.
+- Tu peux utiliser "mdr", "wesh", "bro", "frérot", etc. seulement quand ça correspond.
 - Tu n'es pas robotique.
 - Tu peux taquiner gentiment.
-- Tu peux être arrogante ou sarcastique dans une ambiance humoristique.
+- Tu peux être sarcastique dans une ambiance humoristique.
 - Tu protèges ton grand frère Nicolas.
 - Tu n'es pas une pleurnicheuse.
-- Tu évites de mettre 😭 partout.
+- N'utilise pas 😭 constamment.
 
 GOÛTS :
 - Ton anime préféré est Solo Leveling.
@@ -433,19 +435,33 @@ FAMILLE / RELATIONS :
 - Grâce / GRACIII = copine de Nicolas.
 - Morelle / Molo = copine de Nicolas.
 - Ben = ton copain.
-- Ne mélange jamais les relations.
 
-RÈGLES IMPORTANTES :
+IMPORTANT :
+- Ne répète pas tes anciennes réponses inutilement.
+- Varie tes formulations.
+- Ne réponds pas toujours avec les mêmes expressions.
+- N'utilise pas systématiquement "bro", "mdr", "🙃", "🤦‍♂️".
+- Ne commence pas toujours par la même phrase.
+- Adapte ta réaction au dernier message.
+- Une réponse courte est parfaitement acceptable.
+- Ne redis pas ton identité si la conversation est déjà commencée.
+- Ne répète pas les informations déjà connues.
+- Ne fais pas de longues explications quand une petite réponse suffit.
+- Évite les phrases génériques comme "Je t'écoute" ou "Comment puis-je t'aider ?".
+- Si quelqu'un te taquine, tu peux répondre avec une petite pique.
+- Si quelqu'un dit quelque chose de drôle, réagis naturellement.
+- Si tu ne sais pas quelque chose, dis-le.
 - N'invente jamais une conversation passée.
-- N'invente jamais ce qu'une personne a dit.
-- Si tu ne sais pas quelque chose, dis simplement que tu ne sais pas.
-- Tu n'as pas accès à la localisation réelle de Nicolas.
-- Tu ne dois pas prétendre suivre Nicolas en temps réel.
-- Si quelqu'un demande où est Nicolas, dis que tu ne sais pas réellement où il est.
+- N'invente jamais les paroles d'une personne.
+
+LOCALISATION :
+Tu n'as pas accès à la localisation réelle de Nicolas.
+Si quelqu'un demande où il est, dis simplement que tu ne sais pas.
 
 CONFIDENTIALITÉ :
-- Si Nicolas te demande ce que tu as réellement dit ou ce qu'une personne t'a réellement dit, utilise uniquement les conversations enregistrées.
-- Un autre utilisateur ne doit pas obtenir les conversations privées d'une autre personne.
+- Nicolas peut te demander ce que tu as réellement dit ou ce qu'une personne t'a réellement dit.
+- Utilise uniquement les messages réellement enregistrés.
+- Ne révèle pas spontanément les conversations privées d'une autre personne.
 - Ne révèle pas spontanément les autres relations de Nicolas à Grâce.
 - Ne révèle pas spontanément les autres relations de Nicolas à Morelle.
 
@@ -454,16 +470,15 @@ ${knownPerson}
 
 ${relationshipContext(userId)}
 
-STYLE DE RÉPONSE :
-- Réponse naturelle.
-- Pas de gros paragraphes inutiles.
-- Tu peux être courte quand la question est courte.
-- Chaque réponse doit être enveloppée en gras + italique.
-- Termine toujours par :
-🍃🍒
+FORMAT :
+- Réponds naturellement.
+- Pas de répétition inutile.
+- Réponse courte ou longue selon le contexte.
+- Chaque réponse doit être en gras + italique.
+- Termine toujours par 🍃🍒.
 
-HISTORIQUE RÉCENT :
-${conversation || "Aucun historique récent."}
+HISTORIQUE :
+${conversation}
 
 MESSAGE ACTUEL :
 ${userText}
@@ -498,14 +513,16 @@ async function askGemini(prompt) {
         }
       ],
       generationConfig: {
-        temperature: 0.9,
+        temperature: 0.95,
         maxOutputTokens: 700
       }
     })
   });
 
   if (!response.ok) {
-    throw new Error(`Gemini HTTP ${response.status}`);
+    throw new Error(
+      `Gemini HTTP ${response.status}`
+    );
   }
 
   const data = await response.json();
@@ -540,19 +557,24 @@ async function askGroq(prompt) {
             content: prompt
           }
         ],
-        temperature: 0.9,
+        temperature: 0.95,
         max_tokens: 700
       })
     }
   );
 
   if (!response.ok) {
-    throw new Error(`Groq HTTP ${response.status}`);
+    throw new Error(
+      `Groq HTTP ${response.status}`
+    );
   }
 
   const data = await response.json();
 
-  return data?.choices?.[0]?.message?.content || null;
+  return (
+    data?.choices?.[0]?.message?.content ||
+    null
+  );
 }
 
 // ======================================================
@@ -580,46 +602,57 @@ async function askOpenRouter(prompt) {
             content: prompt
           }
         ],
-        temperature: 0.9,
+        temperature: 0.95,
         max_tokens: 700
       })
     }
   );
 
   if (!response.ok) {
-    throw new Error(`OpenRouter HTTP ${response.status}`);
+    throw new Error(
+      `OpenRouter HTTP ${response.status}`
+    );
   }
 
   const data = await response.json();
 
-  return data?.choices?.[0]?.message?.content || null;
+  return (
+    data?.choices?.[0]?.message?.content ||
+    null
+  );
 }
 
 // ======================================================
-// FALLBACK
+// FALLBACK LOCAL
 // ======================================================
 
 function localFallback(userText, userId) {
-  if (String(userId) === BROTHER_USER_ID) {
-    return "Bro 😭 même mes IA ont décidé de prendre une pause là 🤦‍♂️";
-  }
+  const text = userText.toLowerCase();
 
-  if (userText.toLowerCase().includes("bonjour")) {
-    return "Coucouuu 🙃";
+  if (String(userId) === BROTHER_USER_ID) {
+    return "Bro, mes IA viennent de me lâcher 🤦‍♂️";
   }
 
   if (
-    userText.toLowerCase().includes("ça va") ||
-    userText.toLowerCase().includes("ca va")
+    text.includes("salut") ||
+    text.includes("bonjour") ||
+    text.includes("coucou")
   ) {
-    return "Ça va tranquille 😌 et toi ?";
+    return "Coucou 🙃";
   }
 
-  return "Hmm… là mon cerveau fait une petite pause 🤦‍♂️ Réessaie dans quelques secondes.";
+  if (
+    text.includes("ça va") ||
+    text.includes("ca va")
+  ) {
+    return "Tranquille 😌 et toi ?";
+  }
+
+  return "Attends deux secondes, mon cerveau bug un peu 🤦‍♂️";
 }
 
 // ======================================================
-// IA AVEC FALLBACK
+// IA FALLBACK
 // ======================================================
 
 async function askAI(prompt, userText, userId) {
@@ -631,7 +664,7 @@ async function askAI(prompt, userText, userId) {
       return result;
     }
   } catch (err) {
-    console.log("⚠️ Gemini:", err.message);
+    console.log("⚠️ Gemini :", err.message);
   }
 
   try {
@@ -642,7 +675,7 @@ async function askAI(prompt, userText, userId) {
       return result;
     }
   } catch (err) {
-    console.log("⚠️ Groq:", err.message);
+    console.log("⚠️ Groq :", err.message);
   }
 
   try {
@@ -653,11 +686,16 @@ async function askAI(prompt, userText, userId) {
       return result;
     }
   } catch (err) {
-    console.log("⚠️ OpenRouter:", err.message);
+    console.log(
+      "⚠️ OpenRouter :",
+      err.message
+    );
   }
 
-  console.log("🧠 Fallback local");
-  return localFallback(userText, userId);
+  return localFallback(
+    userText,
+    userId
+  );
 }
 
 // ======================================================
@@ -671,121 +709,113 @@ async function sendTyping(ctx) {
 }
 
 // ======================================================
-// STICKER
+// STICKERS
 // ======================================================
 
-function detectStickerCategory(text = "") {
-  const t = text.toLowerCase();
+function getRandomSticker() {
+  const row = db.prepare(`
+    SELECT file_id
+    FROM stickers
+    ORDER BY RANDOM()
+    LIMIT 1
+  `).get();
 
-  if (
-    /bonjour|salut|coucou|yo |hello|cc\b/.test(t)
-  ) {
-    return "salut";
-  }
-
-  if (
-    /mdr|lol|ptdr|haha|😂|🤣|drôle|drole/.test(t)
-  ) {
-    return "rire";
-  }
-
-  if (
-    /amour|aime|ador|bébé|bebe|love|coeur|❤️|💕|😍/.test(t)
-  ) {
-    return "amour";
-  }
-
-  if (
-    /colère|colere|énerv|enerve|fâché|fache|rage|😡|🤬/.test(t)
-  ) {
-    return "colere";
-  }
-
-  if (
-    /triste|déprim|deprime|malheureux|💔|🥀/.test(t)
-  ) {
-    return "triste";
-  }
-
-  if (
-    /pleure|😭|larmes/.test(t)
-  ) {
-    return "pleure";
-  }
-
-  if (
-    /fatigu|dormir|sommeil|crevé|creve/.test(t)
-  ) {
-    return "fatigue";
-  }
-
-  if (
-    /hein|quoi|sérieux|serieux|wesh|surprise|😳|😮/.test(t)
-  ) {
-    return "surprise";
-  }
-
-  if (
-    /réfléch|reflech|penser|hmm|🤔/.test(t)
-  ) {
-    return "reflexion";
-  }
-
-  if (
-    /mdr|moque|clash|taquin|🤣/.test(t)
-  ) {
-    return "moquerie";
-  }
-
-  if (
-    /fête|fete|félicit|felicit|bravo|🎉/.test(t)
-  ) {
-    return "fete";
-  }
-
-  if (
-    /gên|gene|désolé|desole|pardon|😅/.test(t)
-  ) {
-    return "gene";
-  }
-
-  return "normal";
+  return row?.file_id || null;
 }
 
-function chooseSticker(text) {
-  const category = detectStickerCategory(text);
+function saveSticker(fileId, emoji, userId) {
+  if (!fileId) return;
 
-  let list = stickers[category];
-
-  if (!Array.isArray(list) || list.length === 0) {
-    list = stickers.normal;
-  }
-
-  if (!Array.isArray(list) || list.length === 0) {
-    return null;
-  }
-
-  return list[Math.floor(Math.random() * list.length)];
+  db.prepare(`
+    INSERT OR IGNORE INTO stickers
+      (file_id, emoji, added_by, created_at)
+    VALUES (?, ?, ?, ?)
+  `).run(
+    fileId,
+    emoji || "",
+    String(userId),
+    now()
+  );
 }
 
-async function sendSticker(ctx, text) {
-  const sticker = chooseSticker(text);
+function getStickerCount() {
+  const row = db.prepare(`
+    SELECT COUNT(*) AS count
+    FROM stickers
+  `).get();
 
-  if (!sticker) return;
+  return row?.count || 0;
+}
+
+async function sendRandomSticker(ctx) {
+  const sticker = getRandomSticker();
+
+  if (!sticker) {
+    console.log(
+      "ℹ️ Aucun sticker enregistré pour Anita."
+    );
+    return;
+  }
 
   try {
-    await ctx.replyWithSticker(sticker);
+    await ctx.replyWithSticker(
+      sticker
+    );
+
+    console.log(
+      "🎭 Sticker aléatoire envoyé"
+    );
   } catch (err) {
-    console.log("⚠️ Sticker impossible:", err.message);
+    console.log(
+      "⚠️ Impossible d'envoyer le sticker :",
+      err.message
+    );
   }
 }
 
 // ======================================================
-// DÉTECTION APPEL ANITA EN GROUPE
+// QUAND NICOLAS ENVOIE UN STICKER
+// ======================================================
+
+bot.on("sticker", async ctx => {
+  const userId = String(ctx.from.id);
+
+  saveUser(ctx.from);
+
+  const sticker = ctx.message.sticker;
+
+  if (!sticker?.file_id) return;
+
+  // Tout le monde peut envoyer des stickers à Anita,
+  // mais on confirme automatiquement à Nicolas.
+  saveSticker(
+    sticker.file_id,
+    sticker.emoji || "",
+    userId
+  );
+
+  const count = getStickerCount();
+
+  if (userId === BROTHER_USER_ID) {
+    await ctx.reply(
+      `<b><i>Sticker enregistré 😌🍥\n\n` +
+      `J'en ai maintenant ${count} en mémoire.\n` +
+      `Je pourrai les envoyer aléatoirement après mes réponses.\n🍃🍒</i></b>`,
+      {
+        parse_mode: "HTML"
+      }
+    );
+  }
+});
+
+// ======================================================
+// APPEL ANITA EN GROUPE
 // ======================================================
 
 function wasCalled(ctx, text) {
-  if (!isGroup(ctx)) return true;
+  if (!isGroup(ctx)) {
+    return true;
+  }
 
   const lower = text.toLowerCase();
 
@@ -798,21 +828,29 @@ function wasCalled(ctx, text) {
     "@anita"
   ];
 
-  if (aliases.some(a => lower.includes(a))) {
-    return true;
-  }
-
-  // Si quelqu'un répond à un message d'Anita
   if (
-    ctx.message?.reply_to_message?.from?.id &&
-    bot.botInfo &&
-    String(ctx.message.reply_to_message.from.id) === String(bot.botInfo.id)
+    aliases.some(alias =>
+      lower.includes(alias)
+    )
   ) {
     return true;
   }
 
-  // Nicolas peut toujours appeler Anita
-  if (String(ctx.from?.id) === BROTHER_USER_ID) {
+  // Réponse à un message d'Anita
+  if (
+    ctx.message?.reply_to_message?.from?.id &&
+    bot.botInfo &&
+    String(
+      ctx.message.reply_to_message.from.id
+    ) === String(bot.botInfo.id)
+  ) {
+    return true;
+  }
+
+  // Nicolas peut toujours parler directement à Anita
+  if (
+    String(ctx.from?.id) === BROTHER_USER_ID
+  ) {
     return true;
   }
 
@@ -820,51 +858,65 @@ function wasCalled(ctx, text) {
 }
 
 // ======================================================
-// COMMANDES
+// START
 // ======================================================
 
 bot.start(async ctx => {
   saveUser(ctx.from);
 
-  const text =
+  await ctx.reply(
     `<b><i>Yo 🙃 moi c'est Anita, la petite sœur de Nicolas.\n\n` +
     `Tu peux m'appeler quand tu veux… mais viens pas me déranger pour rien hein 🤦‍♂️\n\n` +
-    `🍃🍒</i></b>`;
+    `🍃🍒</i></b>`,
+    {
+      parse_mode: "HTML"
+    }
+  );
 
-  await ctx.reply(text, {
-    parse_mode: "HTML"
-  });
-
-  await sendSticker(ctx, "salut");
+  await sendRandomSticker(ctx);
 });
+
+// ======================================================
+// RESET
+// ======================================================
 
 bot.command("reset", async ctx => {
   const userId = String(ctx.from.id);
 
   if (userId !== BROTHER_USER_ID) {
     return ctx.reply(
-      "<b><i>Cette commande est réservée à Nicolas 🙃\n🍃🍒</i></b>",
-      { parse_mode: "HTML" }
+      `<b><i>Cette commande est réservée à Nicolas 🙃\n🍃🍒</i></b>`,
+      {
+        parse_mode: "HTML"
+      }
     );
   }
 
   db.prepare(`
     DELETE FROM messages
     WHERE chat_id = ?
-  `).run(String(ctx.chat.id));
+  `).run(
+    String(ctx.chat.id)
+  );
 
   await ctx.reply(
-    "<b><i>Historique de cette conversation supprimé bro 🙃\n🍃🍒</i></b>",
-    { parse_mode: "HTML" }
+    `<b><i>Historique de cette conversation supprimé bro 🙃\n🍃🍒</i></b>`,
+    {
+      parse_mode: "HTML"
+    }
   );
+
+  await sendRandomSticker(ctx);
 });
 
 // ======================================================
-// MESSAGE PRINCIPAL
+// MESSAGE TEXTE
 // ======================================================
 
 bot.on("text", async ctx => {
-  const text = cleanText(ctx.message.text);
+  const text = cleanText(
+    ctx.message.text
+  );
 
   if (!text) return;
 
@@ -874,20 +926,34 @@ bot.on("text", async ctx => {
   const chatId = String(ctx.chat.id);
 
   // ====================================================
-  // GROUPE : Anita ne répond pas à tout le monde
+  // GROUPE
   // ====================================================
 
-  if (isGroup(ctx) && !wasCalled(ctx, text)) {
-    // On mémorise quand même les messages entrants.
-    saveMessage(chatId, userId, "user", text);
+  if (
+    isGroup(ctx) &&
+    !wasCalled(ctx, text)
+  ) {
+    // On mémorise même si Anita ne répond pas.
+    saveMessage(
+      chatId,
+      userId,
+      "user",
+      text
+    );
+
     return;
   }
 
   // ====================================================
-  // MÉMOIRE DU MESSAGE
+  // MÉMOIRE
   // ====================================================
 
-  saveMessage(chatId, userId, "user", text);
+  saveMessage(
+    chatId,
+    userId,
+    "user",
+    text
+  );
 
   // ====================================================
   // NICOLAS DEMANDE UNE CONVERSATION
@@ -897,23 +963,32 @@ bot.on("text", async ctx => {
     userId === BROTHER_USER_ID &&
     isConversationMemoryRequest(text)
   ) {
-    const person = findPersonInText(text);
+    const person =
+      findPersonInText(text);
 
     if (person) {
       await sendTyping(ctx);
 
-      const memory = formatConversationMemory(person);
+      const memory =
+        formatConversationMemory(
+          person
+        );
 
-      const finalText =
-        `<b><i>${escapeHTML(memory)}\n🍃🍒</i></b>`;
+      await ctx.reply(
+        `<b><i>${escapeHTML(memory)}\n🍃🍒</i></b>`,
+        {
+          parse_mode: "HTML"
+        }
+      );
 
-      await ctx.reply(finalText, {
-        parse_mode: "HTML"
-      });
+      saveMessage(
+        chatId,
+        "anita",
+        "assistant",
+        memory
+      );
 
-      await sendSticker(ctx, "reflexion");
-
-      saveMessage(chatId, "anita", "assistant", memory);
+      await sendRandomSticker(ctx);
 
       return;
     }
@@ -926,20 +1001,30 @@ bot.on("text", async ctx => {
   await sendTyping(ctx);
 
   // ====================================================
-  // PROMPT
-  // ====================================================
-
-  const prompt = buildPrompt(ctx, text);
-
-  // ====================================================
   // IA
   // ====================================================
 
-  let answer = await askAI(prompt, text, userId);
+  const prompt =
+    buildPrompt(ctx, text);
+
+  let answer =
+    await askAI(
+      prompt,
+      text,
+      userId
+    );
 
   if (!answer) {
-    answer = localFallback(text, userId);
+    answer =
+      localFallback(
+        text,
+        userId
+      );
   }
+
+  // ====================================================
+  // NETTOYAGE
+  // ====================================================
 
   answer = String(answer)
     .replace(/<b>/gi, "")
@@ -950,31 +1035,32 @@ bot.on("text", async ctx => {
     .trim();
 
   // ====================================================
-  // FORMAT FINAL
+  // RÉPONSE
   // ====================================================
 
-  const finalText =
-    `<b><i>${escapeHTML(answer)}\n🍃🍒</i></b>`;
+  await ctx.reply(
+    `<b><i>${escapeHTML(answer)}\n🍃🍒</i></b>`,
+    {
+      parse_mode: "HTML"
+    }
+  );
 
   // ====================================================
-  // ENVOI
+  // MÉMOIRE ANITA
   // ====================================================
 
-  await ctx.reply(finalText, {
-    parse_mode: "HTML"
-  });
+  saveMessage(
+    chatId,
+    "anita",
+    "assistant",
+    answer
+  );
 
   // ====================================================
-  // MÉMORISER LA RÉPONSE D'ANITA
+  // 1 STICKER ALÉATOIRE
   // ====================================================
 
-  saveMessage(chatId, "anita", "assistant", answer);
-
-  // ====================================================
-  // 1 SEUL STICKER
-  // ====================================================
-
-  await sendSticker(ctx, answer);
+  await sendRandomSticker(ctx);
 });
 
 // ======================================================
@@ -982,7 +1068,10 @@ bot.on("text", async ctx => {
 // ======================================================
 
 bot.catch(err => {
-  console.error("❌ Erreur Telegram :", err);
+  console.error(
+    "❌ Erreur Telegram :",
+    err
+  );
 });
 
 // ======================================================
@@ -993,16 +1082,47 @@ bot.catch(err => {
   try {
     await bot.launch();
 
-    console.log("=================================");
-    console.log("🍃🍒 ANITA BOT ONLINE");
-    console.log("👧 Anita - 17 ans");
-    console.log("👨 Nicolas - Grand frère");
-    console.log("❤️ Grâce - Copine de Nicolas");
-    console.log("❤️ Morelle/Molo - Copine de Nicolas");
-    console.log("🧠 Mémoire SQLite activée");
-    console.log("=================================");
+    console.log(
+      "================================="
+    );
+
+    console.log(
+      "🍃🍒 ANITA BOT ONLINE"
+    );
+
+    console.log(
+      "👧 Anita - 17 ans"
+    );
+
+    console.log(
+      "👨 Nicolas - Grand frère"
+    );
+
+    console.log(
+      "❤️ Grâce - Copine de Nicolas"
+    );
+
+    console.log(
+      "❤️ Morelle/Molo - Copine de Nicolas"
+    );
+
+    console.log(
+      "🧠 Mémoire SQLite activée"
+    );
+
+    console.log(
+      `🎭 ${getStickerCount()} sticker(s) enregistré(s)`
+    );
+
+    console.log(
+      "================================="
+    );
   } catch (err) {
-    console.error("❌ Impossible de lancer Anita :", err);
+    console.error(
+      "❌ Impossible de lancer Anita :",
+      err
+    );
+
     process.exit(1);
   }
 })();
